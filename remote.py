@@ -19,34 +19,48 @@ client = Connection(host=args.on.split('@')[-1],
 
 if args.kill:
     try:
-        client.run('tmux kill-session -t remote_jupyter')
+        client.run('tmux kill-session -t remote_jupyter', hide=True)
     except:
         print "Nothing to kill"
     sys.exit()
         
 try:
-    path = '{.stdout}'.format(client.run('source ~/.zshrc; which jupyter-notebook')) 
+    path = '{.stdout}'.format(client.run('source ~/.zshrc; which jupyter-notebook', hide=True)) 
 except invoke.exceptions.UnexpectedExit:
     raise Exception('jupyter-notebook not found')
 
 
 try:
-    client.run('source ~/.zshrc; which tmux')
+    client.run('source ~/.zshrc; which tmux', hide=True)
 except invoke.exceptions.UnexpectedExit:
     raise Exception('tmux not found')
 
 
-remote_notebook_command = '''tmux new-session -d -s remote_jupyter %s '''%(path)
+def close_ports(ports):
+    for port in ports:
+        client.run('source ~/.zshrc; jupyter-notebook stop %s'%port, hide=True)
 
-try:
-    notebook = client.run(remote_notebook_command)
-except invoke.exceptions.UnexpectedExit:
-    pass
+def start_server():
+    remote_notebook_command = '''tmux new-session -d -s remote_jupyter %s '''%(path)
 
-notebook_list = client.run('source ~/.zshrc; jupyter-notebook list')
-lines = "{.stdout}".format(notebook_list)
-remote_port = lines.split('localhost:')[-1].split('/')[0]
-remote_token = (lines.split("token=")[-1].split("::")[0])
+    try:
+        notebook = client.run(remote_notebook_command, hide=True)
+    except invoke.exceptions.UnexpectedExit:
+        pass
+
+    notebook_list = "{.stdout}".format(client.run('source ~/.zshrc; jupyter-notebook list', hide=True)).split("\n")[1:-1]
+    return notebook_list
+
+notebook_list = start_server()
+
+if len(notebook_list) != 1:
+    ports = [int(x.split('localhost:')[-1].split('/')[0]) for x in notebook_list if bool(x)]
+    close_ports(ports)
+    notebook_list = start_server()
+
+remote_port = notebook_list[0].split('localhost:')[-1].split('/')[0]
+remote_token = notebook_list[0].split("token=")[-1].split("::")[0]
+
 client.close()
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
